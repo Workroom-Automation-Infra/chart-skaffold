@@ -1,0 +1,106 @@
+{{- /*
+Additional workloads from the same image and configuration as the main
+Deployment, differing only in command/args, replicas and resources — e.g. a
+queue worker next to the API. One Deployment per item in extraDeployments;
+none by default.
+
+Each gets its own app.kubernetes.io/name (<name>-<item>), so the main Service,
+which selects on the chart's selectorLabels, never routes traffic to it. The
+HPA, Service and Ingress apply to the main Deployment only.
+*/ -}}
+{{- $envConfig := .Values.secretEnv | default dict }}
+{{- range $d := .Values.extraDeployments | default list }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "+( .AppName ).fullname" $ }}-{{ $d.name }}
+  labels:
+    helm.sh/chart: {{ include "+( .AppName ).chart" $ }}
+    app.kubernetes.io/name: {{ include "+( .AppName ).name" $ }}-{{ $d.name }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    {{- if $.Chart.AppVersion }}
+    app.kubernetes.io/version: {{ $.Chart.AppVersion | quote }}
+    {{- end }}
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+spec:
+  revisionHistoryLimit: 1
+  replicas: {{ $d.replicaCount | default 1 }}
+  {{- with $d.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "+( .AppName ).name" $ }}-{{ $d.name }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  template:
+    metadata:
+      {{- with $.Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/name: {{ include "+( .AppName ).name" $ }}-{{ $d.name }}
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+    spec:
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $.Values.serviceAccountName }}
+      serviceAccountName: {{ $.Values.serviceAccountName }}
+      {{- end }}
+      securityContext:
+        {{- toYaml $.Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ $d.name }}
+          securityContext:
+            {{- toYaml $.Values.securityContext | nindent 12 }}
+          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag | default $.Chart.AppVersion }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          {{- if $envConfig.enabled | default false }}
+          envFrom:
+          - secretRef:
+              name: {{ $envConfig.secretName | quote }}
+          {{- end }}
+          {{- with $d.command }}
+          command:
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+          {{- with $d.args }}
+          args:
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+          env:
+          {{- range $k, $v := $.Values.env }}
+          - name: {{ $k }}
+            value: "{{ $v }}"
+          {{- end }}
+          {{- range $k, $v := $d.env }}
+          - name: {{ $k }}
+            value: "{{ $v }}"
+          {{- end }}
+          {{- with $d.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $d.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml ($d.resources | default $.Values.resources) | nindent 12 }}
+      {{- with ($d.nodeSelector | default $.Values.nodeSelector) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
