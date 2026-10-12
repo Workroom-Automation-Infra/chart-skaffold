@@ -50,11 +50,26 @@ service:
     port: 80
     appPort: 8050
 
+# Migration Job, run as an Argo CD PreSync hook before every sync
+# (templates/migration-job.yaml). Same image tag, env and secretEnv as the
+# Deployment.
 migrations:
   enabled: false
   # image: otherimages
   # command: ["app"]
   args: ["migrate", "up"]
+  # backoffLimit: 1
+  # activeDeadlineSeconds: 600
+  # resources: {}            # defaults to .Values.resources
+
+# Extra Deployments from the same image and env, e.g. a queue worker
+# (templates/extra-deployments.yaml). Not behind the Service/Ingress/HPA.
+extraDeployments: []
+  # - name: worker           # Deployment <fullname>-worker
+  #   replicaCount: 1
+  #   args: ["worker"]
+  #   env: {}                # added to .Values.env
+  #   resources: {}          # defaults to .Values.resources
   
 #Ambassador gateway mappings
 gateway:
